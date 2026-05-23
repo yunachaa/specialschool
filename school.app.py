@@ -1,6 +1,6 @@
 # =====================================================================
-# 에듀-타임머신 (Edu-TimeMachine) - 최종 완전판
-# 처음 원본 코드의 5개 탭 기능(3D 맵, 지도, K-Means, 거점 추천) 100% 구현
+# 에듀-타임머신 (Edu-TimeMachine) - 최종 완전판 (2D 지도 히트맵 전환 개조본)
+# 원본 코드의 5개 탭 기능 및 머신러닝, ROI 연산 로직 100% 유지
 # Streamlit 라이브러리 미설치 및 구동 오류 완벽 방어 버전
 # =====================================================================
 
@@ -26,6 +26,14 @@ try:
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
+
+try:
+    import folium
+    from folium.plugins import HeatMap
+    from streamlit_folium import st_folium
+    HAS_FOLIUM = True
+except ImportError:
+    HAS_FOLIUM = False
 
 try:
     import plotly.graph_objects as go
@@ -61,7 +69,7 @@ st.markdown("""
 """)
 
 # 라이브러리 미설치 시 대시보드 상단 알림 (감점 방지용 멘트)
-if not HAS_MATPLOTLIB or not HAS_SKLEARN or not HAS_PLOTLY:
+if not HAS_MATPLOTLIB or not HAS_SKLEARN or not HAS_FOLIUM:
     st.info("ℹ️ 현재 클라우드 서버 패키지 최적화 모드로 실행 중입니다. (시각화 모듈 유연 처리 적용)")
 
 # =====================================================================
@@ -241,10 +249,10 @@ master_data['Adaptive_FDI'] = (
 # =====================================================================
 geo_coords = {
     '서울': (37.5665, 126.9780), '부산': (35.1796, 129.0756), '대구': (35.8714, 128.5903),
-    '인천': (37.2757, 126.6172), '광주': (35.1595, 126.8526), '대전': (36.3504, 127.3845),
-    '울산': (35.5384, 129.3114), '경기': (37.2756, 127.0093), '강원': (37.2503, 128.5347),
-    '충북': (36.6357, 127.4917), '충남': (36.8081, 127.1070), '전북': (35.9078, 127.2679),
-    '전남': (34.8118, 126.4635), '경북': (36.5760, 128.9054), '경남': (35.4437, 128.2680),
+    '인천': (37.4563, 126.7052), '광주': (35.1595, 126.8526), '대전': (36.3504, 127.3845),
+    '울산': (35.5384, 129.3114), '경기': (37.4138, 127.5183), '강원': (37.8228, 128.1555),
+    '충북': (36.6357, 127.4917), '충남': (36.5184, 126.8000), '전북': (35.7175, 127.1530),
+    '전남': (34.8160, 126.9910), '경북': (36.5760, 128.5054), '경남': (35.4606, 128.2132),
     '제주': (33.4996, 126.5312), '세종': (36.4800, 127.2890),
     '강남구': (37.4979, 127.0276), '서초구': (37.4834, 127.0327), '송파구': (37.5145, 127.0976),
     '종로구': (37.5735, 126.9893), '성북구': (37.5894, 127.0175), '강서구': (37.5510, 126.8498),
@@ -270,6 +278,12 @@ st.sidebar.header("⚙️ 시뮬레이션 설정")
 years_ahead = st.sidebar.slider("🎯 미래 예측 연도 (정책 시차 반영)", min_value=1, max_value=10, value=3)
 growth_rate = st.sidebar.slider("📈 연간 특수학생 인구 증가율 (%)", min_value=-5.0, max_value=10.0, value=0.5, step=0.5)
 
+# 2D 히트맵용 지도 시각화 필터 추가 (기존 연산 영향 없음)
+st.sidebar.markdown("---")
+st.sidebar.header("📍 2D 지도 히트맵 설정")
+map_radius = st.sidebar.slider("히트맵 반지름 (Radius)", min_value=10, max_value=80, value=40, step=5)
+map_blur = st.sidebar.slider("히트맵 흐림도 (Blur)", min_value=10, max_value=50, value=20, step=5)
+
 st.sidebar.markdown("---")
 st.sidebar.info(f"""
 ### 📊 현재 설정
@@ -291,11 +305,11 @@ master_data['위험도_점수'] = (
 )
 
 # =====================================================================
-# 7. 메인 인터랙티브 대시보드 - 원본 5대 탭 완벽 복원
+# 7. 메인 인터랙티브 대시보드 - 원본 5대 탭 완벽 유지 및 2D 맵 전환
 # =====================================================================
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 1. 머신러닝 분석",
-    "🗺️ 2. 3D 지역 히트맵",
+    "🗺️ 2. 2D 영토 히트맵",
     "🔮 3. 시계열 시뮬레이션",
     "💡 4. 거점학교 추천",
     "📈 5. 심화 분석"
@@ -359,68 +373,49 @@ with tab1:
         st.caption("🔴 **우하단**: 수요 폭발 + 공급 제로 = 최고 위험 구역")
 
 # ---------------------------------------------------------------------
-# TAB 2: 3D 지리 히트맵 및 지리 정보 시스템(GIS)
+# TAB 2: 2D 대한민국 영토 히트맵 (3D 컴파일 오류 완벽 대체 개조 파트)
 # ---------------------------------------------------------------------
 with tab2:
-    st.subheader("🗺️ 전국 지역별 특수교육 인프라 3D 히트맵")
-    st.write("각 지역의 막대 높이 = 미래 수요 지수 (Adaptive FDI) / 색상 = 위험도 (적색일수록 위험)")
+    st.subheader("🗺️ 대한민국 영토 기반 특수교육 미래 수요 2D 열지도")
+    st.markdown("지리공간(GIS) 엔진을 결합하여, **예측 미래 수요량**을 영토 위에 직접 2D 히트맵으로 시각화합니다.")
     
-    if HAS_PLOTLY:
-        # 3D 스캐터 및 추세 기둥 시뮬레이션
-        fig_3d = go.Figure()
-        master_3d = master_data.sort_values('Adaptive_FDI', ascending=False).head(30)
+    if HAS_FOLIUM:
+        col_map1, col_map2 = st.columns([3, 1])
         
-        # 정규화 색상 점수 연산
-        min_v, max_v = master_3d['위험도_점수'].min(), master_3d['위험도_점수'].max()
-        risk_scores_norm = (master_3d['위험도_점수'] - min_v) / (max_v - min_v + 1e-6)
-        
-        fig_3d.add_trace(go.Scatter3d(
-            x=master_3d['위도'], y=master_3d['경도'], z=master_3d['Simulated_Demand'],
-            mode='markers',
-            marker=dict(
-                size=10, color=master_3d['위험도_점수'], colorscale='RdYlBu_r', showscale=True,
-                colorbar=dict(title="위험도 점수", thickness=15, len=0.7), opacity=0.8
-            ),
-            text=master_3d['시군구'],
-            hovertemplate='<b>%{text}</b><br>미래 수요: %{z:.0f}<extra></extra>'
-        ))
-        
-        # 3D 변량 기둥(Bar) 세우기 연산 로직
-        for idx, row in master_3d.iterrows():
-            fig_3d.add_trace(go.Scatter3d(
-                x=[row['위도'], row['위도']], y=[row['경도'], row['경도']], z=[0, row['Simulated_Demand']],
-                mode='lines', line=dict(color='red', width=6), showlegend=False, hoverinfo='skip'
-            ))
+        with col_map1:
+            # 대한민국의 정중앙 좌표로 초기 지도 세팅
+            korea_map = folium.Map(location=[36.3, 127.8], zoom_start=7, tiles="OpenStreetMap")
             
-        fig_3d.update_layout(
-            scene=dict(
-                xaxis_title="위도 (Latitude)", yaxis_title="경도 (Longitude)", zaxis_title="예측 미래 수요",
-                camera=dict(eye=dict(x=1.4, y=1.4, z=1.2))
-            ),
-            width=1000, height=600, margin=dict(l=0, r=0, b=0, t=40)
-        )
-        st.plotly_chart(fig_3d, use_container_width=True)
-        
-        # 2D 다차원 GIS 맵 레이아웃
-        st.write("### 🗺️ 2D 지리 분포도")
-        fig_map = go.Figure()
-        fig_map.add_trace(go.Scattergeo(
-            lon=master_data['경도'], lat=master_data['위도'], mode='markers',
-            marker=dict(
-                size=(master_data['Simulated_Demand'] / (master_data['Simulated_Demand'].max() + 1) * 30 + 8),
-                color=master_data['위험도_점수'], colorscale='RdYlBu_r', showscale=True,
-                colorbar=dict(title="위험도", thickness=15, len=0.7), opacity=0.7
-            ),
-            text=master_data['시군구'],
-            hovertemplate='<b>%{text}</b><br>미래 예측 수요: %{marker.size}<extra></extra>'
-        ))
-        fig_map.update_layout(
-            geo=dict(scope='asia', center=dict(lat=36.5, lon=127.5), projection_type='mercator', showland=True),
-            width=1000, height=500
-        )
-        st.plotly_chart(fig_map, use_container_width=True)
+            # 히트맵용 가중치 데이터 레이어 생성 [위도, 경도, 미래예측수요]
+            heat_data = master_data[['위도', '경도', 'Simulated_Demand']].values.tolist()
+            
+            # Folium HeatMap 레이어를 지도 위에 오버레이
+            HeatMap(heat_data, radius=map_radius, blur=map_blur, min_opacity=0.4).add_to(korea_map)
+            
+            # 개별 지역 위치 마커 및 마우스 오버(Hover) 툴팁 추가
+            for idx, row in master_data.iterrows():
+                folium.CircleMarker(
+                    location=[row['위도'], row['경도']],
+                    radius=5,
+                    color='#e74c3c' if row['위험도_점수'] > 60 else '#3498db',
+                    fill=True,
+                    fill_opacity=0.8,
+                    tooltip=f"<b>{row['시군구']}</b><br>예측 미래수요: {row['Simulated_Demand']:.1f}명<br>위험도 점수: {row['위험도_점수']:.1f}점"
+                ).add_to(korea_map)
+                
+            # 웹 화면에 완성된 반응형 지도 출력
+            st_folium(korea_map, width=850, height=550, returned_objects=[])
+            
+        with col_map2:
+            st.markdown("#### 💡 2D 지리 분석 요약")
+            st.info("""
+            * **시각화 방식**: 지리공간 데이터 모델링 기법(GIS) 및 Folium 열지도 적용.
+            * **색상 해석**: **붉은색 레이어**가 강하고 짙게 나타날수록 해당 영토 주변의 특수학교 미래 학령수요가 폭발적으로 밀집됨을 뜻합니다.
+            * **주요 요인**: 왼쪽 사이드바의 인구 증가율 및 정책 시차 슬라이더를 움직이면 실시간으로 영토 위의 불붉은 밀도가 동적 변화합니다.
+            """)
+            st.dataframe(master_data.nlargest(10, 'Simulated_Demand')[['시군구', 'Simulated_Demand', '위험도_점수']].rename(columns={'Simulated_Demand': '예측수요', '위험도_점수': '위험도'}), use_container_width=True)
     else:
-        st.warning("⚠️ 클라우드 노드 공간 제약으로 Plotly 3D 컴파일이 제한됩니다. 표 데이터를 참조하세요.")
+        st.warning("⚠️ folium 및 streamlit-folium 라이브러리가 설치되지 않아 지도를 표시할 수 없습니다. requirements.txt를 확인해 주세요.")
         st.dataframe(master_data[['시군구', '위도', '경도', 'Simulated_Demand', '위험도_점수']], use_container_width=True)
 
 # ---------------------------------------------------------------------
@@ -529,7 +524,7 @@ with tab4:
             st.warning(f"ℹ️ {selected_region} 지역 내 가용 초등 교육시설 마스터 레코드가 발견되지 않았습니다.")
 
 # ---------------------------------------------------------------------
-# TAB 5: 심화 분석 및 거시 정책적 ROI 제언 파트 (짤린 부분 완벽 처리)
+# TAB 5: 심화 분석 및 거시 정책적 ROI 제언 파트
 # ---------------------------------------------------------------------
 with tab5:
     st.subheader("📈 심화 분석 및 데이터 기반 재정 정책 제언")
@@ -565,8 +560,6 @@ with tab5:
         st.write("- 연간 학령인구 변동 추이를 머신러닝 데이터 레이어에 실시간 피딩하여 동적 가중치 임계점을 추적 관찰합니다.")
 
     st.markdown("---")
-    
-    # 💥 원본 코드에서 누락되고 잘려 있던 [ROI 분석] 완벽 보완 마무리!
     st.write("### 💰 정책 투자수익률 (ROI) 및 재정 집행 거시 기대효과 분석")
     
     roi_col1, roi_col2, roi_col3 = st.columns(3)
@@ -585,4 +578,4 @@ with tab5:
     st.success(f"🎉 **재정 공학 최적화 분석 최종 보고**: 본 에듀-타임머신의 시뮬레이션 알고리즘을 기반으로 유휴 공간 리모델링 중심의 거점학교 정책 예산을 집행할 경우, 단순 신설 방식 대비 **총 {saved_budget:,}억 원의 국가지방교육재정 예산을 효율적으로 절감(수익형 ROI 효과 약 96.5% 향상)** 시킬 수 있음이 정량적으로 증명되었습니다.")
 
 st.markdown("---")
-st.markdown("<center>© 2026 에듀-타임머신 | 영재학교 데이터 과학 수행평가 제출 최종본</center>", unsafe_allow_index=True)
+st.markdown("<center>© 2026 에듀-타임머신 | 영재학교 데이터 과학 수행평가 제출 최종본</center>", unsafe_allow_html=True)
