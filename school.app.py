@@ -699,4 +699,4 @@ with tab5:
     st.markdown("---")
     
     # ---- 추가: ROI 분석 ----
-    st.write("### 💰 정책 투자수익률(
+    st.write("### 💰 정책 투자수익률")
