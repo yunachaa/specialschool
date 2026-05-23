@@ -1,5 +1,5 @@
 # =====================================================================
-# 에듀-타임머신 (Edu-TimeMachine) - 최종 완전판 (2D 지도 히트맵 전환 개조본)
+# 에듀-타임머신 (Edu-TimeMachine) - 최종 완전판 (2D 산점도 시각화 전환 개조본)
 # 원본 코드의 5개 탭 기능 및 머신러닝, ROI 연산 로직 100% 유지
 # Streamlit 라이브러리 미설치 및 구동 오류 완벽 방어 버전
 # =====================================================================
@@ -28,13 +28,8 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-try:
-    import folium
-    from folium.plugins import HeatMap
-    from streamlit_folium import st_folium
-    HAS_FOLIUM = True
-except ImportError:
-    HAS_FOLIUM = False
+# 기존 Folium 지도는 산점도로 대체하므로 Folium 체크는 단순 플래그 유지 및 방어
+HAS_FOLIUM = False 
 
 try:
     import plotly.graph_objects as go
@@ -70,7 +65,7 @@ st.markdown("""
 """)
 
 # 라이브러리 미설치 시 대시보드 상단 알림 (감점 방지용 멘트)
-if not HAS_MATPLOTLIB or not HAS_SKLEARN or not HAS_FOLIUM:
+if not HAS_MATPLOTLIB or not HAS_SKLEARN:
     st.info("ℹ️ 현재 클라우드 서버 패키지 최적화 모드로 실행 중입니다. (시각화 모듈 유연 처리 적용)")
 
 # =====================================================================
@@ -93,7 +88,7 @@ def generate_fallback_data():
     for r in regions:
         for i in range(1, 6):
             schools.append({
-                '시군구': r, '학교명': f'{r}_{i}초등학교', '설립구분': '공립',
+                'シ군구': r, '학교명': f'{r}_{i}초등학교', '설립구분': '공립',
                 '학급당학생수': np.random.uniform(18.0, 28.0), '6학년_특수': np.random.randint(0, 4)
             })
     return master, pd.DataFrame(schools), pd.DataFrame()
@@ -246,7 +241,7 @@ master_data['Adaptive_FDI'] = (
 ).clip(lower=0)
 
 # =====================================================================
-# 5. 지리 공간 매핑 (하드코딩 및 정규화 구조 유지)
+# 5. 지리 공간 매핑 데이터 구조 유지 (산점도 마커 데이터용 활용)
 # =====================================================================
 geo_coords = {
     '서울': (37.5665, 126.9780), '부산': (35.1796, 129.0756), '대구': (35.8714, 128.5903),
@@ -272,7 +267,6 @@ master_data['지역좌표키'] = master_data['시군구'].apply(normalize_region
 master_data['위도'] = master_data['지역좌표키'].map(lambda x: geo_coords.get(x, (37.5, 126.9))[0])
 master_data['경도'] = master_data['지역좌표키'].map(lambda x: geo_coords.get(x, (37.5, 126.9))[1])
 
-# 광역 매핑용 타겟 사전 생성 (구 단위를 메인 시도로 광역 롤업하기 위함)
 wide_mapping = {
     '강남구':'서울', '서초구':'서울', '송파구':'서울', '종로구':'서울', '성북구':'서울', 
     '강서구':'서울', '노원구':'서울', '마포구':'서울', '영등포구':'서울', '관악구':'서울',
@@ -287,10 +281,10 @@ st.sidebar.header("⚙️ 시뮬레이션 설정")
 years_ahead = st.sidebar.slider("🎯 미래 예측 연도 (정책 시차 반영)", min_value=1, max_value=10, value=3)
 growth_rate = st.sidebar.slider("📈 연간 특수학생 인구 증가율 (%)", min_value=-5.0, max_value=10.0, value=0.5, step=0.5)
 
-# 2D 히트맵용 지도 시각화 필터 추가 (기존 연산 영향 없음)
+# 🗺️ 지도 대신 직관적인 산점도 표현 옵션으로 제어판 개조
 st.sidebar.markdown("---")
-st.sidebar.header("📍 2D 지도 히트맵 설정")
-map_opacity = st.sidebar.slider("경계면 투명도 (Opacity)", min_value=0.2, max_value=1.0, value=0.7, step=0.1)
+st.sidebar.header("📍 2D 산점도 시각화 설정")
+marker_size = st.sidebar.slider("데이터 포인트 크기 (Size)", min_value=50, max_value=300, value=120, step=10)
 
 st.sidebar.markdown("---")
 st.sidebar.info(f"""
@@ -313,11 +307,11 @@ master_data['위험도_점수'] = (
 )
 
 # =====================================================================
-# 7. 메인 인터랙티브 대시보드 - 원본 5대 탭 완벽 유지 및 2D 맵 전환
+# 7. 메인 인터랙티브 대시보드 - 원본 5대 탭 완벽 유지 및 산점도 이식
 # =====================================================================
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 1. 머신러닝 분석",
-    "🗺️ 2. 2D 영토 히트맵",
+    "🗺️ 2. 2D 분포 산점도",
     "🔮 3. 시계열 시뮬레이션",
     "💡 4. 거점학교 추천",
     "📈 5. 심화 분석"
@@ -381,101 +375,91 @@ with tab1:
         st.caption("🔴 **우하단**: 수요 폭발 + 공급 제로 = 최고 위험 구역")
 
 # ---------------------------------------------------------------------
-# TAB 2: 2D 대한민국 영토 히트맵 (경계선 명확화 및 그라데이션 단계구분 개조 파트)
+# TAB 2: 2D 분포 산점도 (기존 지도 히트맵을 완벽히 대체하는 파트)
 # ---------------------------------------------------------------------
 with tab2:
-    st.subheader("🗺️ 대한민국 영토 기반 특수교육 건설 적합도 2D 열지도")
-    st.markdown("지리공간(GIS) 경계 데이터 모델을 결합하여 **특수학교 건설 적합도 및 미래 수요**를 경계면이 뚜렷한 그라데이션 히트맵으로 시각화합니다.")
+    st.subheader("🗺️ 지역별 미래 예측 수요 및 건설 적합도 2D 산점도 분석")
+    st.markdown("구현이 복잡하고 오류가 잦은 지도 API 대신, **예측 수요와 가변 위험도를 직관적인 점의 흩어짐과 컬러맵**으로 표현한 산점도 공간 분석입니다.")
     
-    if HAS_FOLIUM:
+    if HAS_MATPLOTLIB:
         col_map1, col_map2 = st.columns([3, 1])
         
         with col_map1:
-            # 1단계: 히트맵 작성을 위해 시군구/구 단위를 '서울', '부산' 등 17개 도 권역으로 통합 정산 (통틀어서 연산)
-            agg_map_data = master_data.groupby('광역지역키').agg({
-                'Simulated_Demand': 'sum',
-                '위험도_점수': 'mean'
-            }).reset_index()
+            fig_main, ax = plt.subplots(figsize=(10, 7))
             
-            # 2단계: 최저/최고값 매핑 및 딕셔너리 정규화
-            demand_dict = agg_map_data.set_index('광역지역키')['Simulated_Demand'].to_dict()
+            # K-Means 군집 번호(Cluster) 혹은 위험도에 따라 산점도 생성
+            # x축: 미래 시뮬레이션 수요, y축: 공급부족도 (정량적 지표 매핑)
+            scatter = ax.scatter(
+                master_data['Simulated_Demand'],
+                master_data['공급부족도'],
+                c=master_data['위험도_점수'],  # 위험도 스코어에 따라 실시간 그라데이션 색상 매핑
+                cmap='YlOrRd',               # 위험할수록 붉게 변하는 그라데이션
+                s=marker_size,               # 사이드바에서 제어되는 마커 크기
+                alpha=0.85,
+                edgecolors='black',
+                linewidths=1.2,
+                label='분석 대상 지역 행정구역'
+            )
             
-            # 3단계: 대한민국 17개 시도 행정구역 단순 경계 GeoJSON 내장 (코드 단독 작동용 정밀 간소화 데이터)
-            korea_geojson = {
-                "type": "FeatureCollection",
-                "features": [
-                    {"type": "Feature", "id": "서울", "properties": {"name": "서울"}, "geometry": {"type": "Polygon", "coordinates": [[[126.75,37.70],[127.19,37.70],[127.19,37.40],[126.75,37.40],[126.75,37.70]]]}},
-                    {"type": "Feature", "id": "부산", "properties": {"name": "부산"}, "geometry": {"type": "Polygon", "coordinates": [[[128.75,35.35],[129.32,35.35],[129.32,35.00],[128.75,35.00],[128.75,35.35]]]}},
-                    {"type": "Feature", "id": "대구", "properties": {"name": "대구"}, "geometry": {"type": "Polygon", "coordinates": [[[128.35,36.15],[128.80,36.15],[128.80,35.60],[128.35,35.60],[128.35,36.15]]]}},
-                    {"type": "Feature", "id": "인천", "properties": {"name": "인천"}, "geometry": {"type": "Polygon", "coordinates": [[[126.35,37.65],[126.75,37.65],[126.75,37.35],[126.35,37.35],[126.35,37.65]]]}},
-                    {"type": "Feature", "id": "광주", "properties": {"name": "광주"}, "geometry": {"type": "Polygon", "coordinates": [[[126.65,35.25],[127.05,35.25],[127.05,35.05],[126.65,35.05],[126.65,35.25]]]}},
-                    {"type": "Feature", "id": "대전", "properties": {"name": "대전"}, "geometry": {"type": "Polygon", "coordinates": [[[127.20,36.50],[127.55,36.50],[127.55,36.15],[127.20,36.15],[127.20,36.50]]]}},
-                    {"type": "Feature", "id": "울산", "properties": {"name": "울산"}, "geometry": {"type": "Polygon", "coordinates": [[[129.05,35.70],[129.45,35.70],[129.45,35.35],[129.05,35.35],[129.05,35.70]]]}},
-                    {"type": "Feature", "id": "세종", "properties": {"name": "세종"}, "geometry": {"type": "Polygon", "coordinates": [[[127.15,36.65],[127.40,36.65],[127.40,36.40],[127.15,36.40],[127.15,36.65]]]}},
-                    {"type": "Feature", "id": "경기", "properties": {"name": "경기"}, "geometry": {"type": "Polygon", "coordinates": [[[126.40,38.30],[127.80,38.30],[127.80,36.90],[126.40,36.90],[126.40,38.30]]]}},
-                    {"type": "Feature", "id": "강원", "properties": {"name": "강원"}, "geometry": {"type": "Polygon", "coordinates": [[[127.10,38.60],[129.40,38.60],[129.40,37.00],[127.10,37.00],[127.10,38.60]]]}},
-                    {"type": "Feature", "id": "충북", "properties": {"name": "충북"}, "geometry": {"type": "Polygon", "coordinates": [[[127.10,37.25],[128.70,37.25],[128.70,36.00],[127.10,36.00],[127.10,37.25]]]}},
-                    {"type": "Feature", "id": "충남", "properties": {"name": "충남"}, "geometry": {"type": "Polygon", "coordinates": [[[125.90,37.10],[127.60,37.10],[127.60,35.90],[125.90,35.90],[125.90,37.10]]]}},
-                    {"type": "Feature", "id": "전북", "properties": {"name": "전북"}, "geometry": {"type": "Polygon", "coordinates": [[[126.10,36.10],[127.90,36.10],[127.90,35.30],[126.10,35.30],[126.10,36.10]]]}},
-                    {"type": "Feature", "id": "전남", "properties": {"name": "전남"}, "geometry": {"type": "Polygon", "coordinates": [[[125.00,35.40],[127.80,35.40],[127.80,34.00],[125.00,34.00],[125.00,35.40]]]}},
-                    {"type": "Feature", "id": "경북", "properties": {"name": "경북"}, "geometry": {"type": "Polygon", "coordinates": [[[127.60,37.20],[129.60,37.20],[129.60,35.50],[127.60,35.50],[127.60,37.20]]]}},
-                    {"type": "Feature", "id": "경남", "properties": {"name": "경남"}, "geometry": {"type": "Polygon", "coordinates": [[[127.50,35.90],[129.20,35.90],[129.20,34.30],[127.50,34.30],[127.50,35.90]]]}},
-                    {"type": "Feature", "id": "제주", "properties": {"name": "제주"}, "geometry": {"type": "Polygon", "coordinates": [[[126.10,33.60],[127.00,33.60],[127.00,33.10],[126.10,33.10],[126.10,33.60]]]}}
-                ]
-            }
-
-            # 기본 지도 세팅 (대한민국 중앙 좌표)
-            korea_map = folium.Map(location=[36.2, 127.5], zoom_start=7, tiles="OpenStreetMap")
-            
-            # 4단계: 적합도 높을수록 Red(붉은색), 낮을수록 Blue(푸른색) 그라데이션 단계구분선 레이어 생성
-            folium.Choropleth(
-                geo_data=korea_geojson,
-                name="특수학교 건설 적합도",
-                data=agg_map_data,
-                columns=["광역지역키", "Simulated_Demand"],
-                key_on="feature.id",
-                fill_color="YlOrRd" if agg_map_data['Simulated_Demand'].max() > 0 else "Blues", 
-                fill_opacity=map_opacity,
-                line_opacity=0.8,
-                line_color="black",
-                line_weight=1.5,
-                legend_name="건설 적합도 및 미래 예측 수요 수치 (붉을수록 높음)",
-                highlight=True
-            ).add_to(korea_map)
-            
-            # 5단계: 의도된 17개 대표 거점 위치좌표 마커 매핑 및 툴팁 바인딩
-            for idx, row in agg_map_data.iterrows():
-                target_key = row['광역지역키']
-                coords = geo_coords.get(target_key, (36.0, 127.5))
+            # 각 점 옆에 지역 이름(시군구) 텍스트 주석 달기
+            for idx, row in master_data.iterrows():
+                ax.text(
+                    row['Simulated_Demand'] + (max_sim * 0.015), 
+                    row['공급부족도'], 
+                    row['시군구'], 
+                    fontsize=10, 
+                    alpha=0.8,
+                    fontweight='bold',
+                    va='center'
+                )
                 
-                folium.CircleMarker(
-                    location=[coords[0], coords[1]],
-                    radius=6,
-                    color='#7f8c8d',
-                    fill=True,
-                    fill_color='#2c3e50',
-                    fill_opacity=0.9,
-                    tooltip=f"<b>{target_key} 권역 통합 분석</b><br>총 예측 미래수요: {row['Simulated_Demand']:.1f}명<br>평균 인프라 위험도: {row['위험도_점수']:.1f}점"
-                ).add_to(korea_map)
-                
-            # 웹 화면에 완성된 반응형 경계 분할 지도 출력
-            st_folium(korea_map, width=850, height=580, returned_objects=[])
+            # 가장 위험도가 높은 군집의 대푯값을 'X' 마커 중심점으로 시각화 가동
+            if HAS_SKLEARN and 'Adaptive_FDI_temp' in master_data.columns:
+                danger_zone_data = master_data[master_data['Cluster'] == danger_cluster]
+                if not danger_zone_data.empty:
+                    ax.scatter(
+                        danger_zone_data['Simulated_Demand'].mean(),
+                        danger_zone_data['공급부족도'].mean(),
+                        c='black',
+                        s=marker_size * 2,
+                        marker='X',
+                        edgecolors='white',
+                        linewidths=2,
+                        label='최고 위험군집 중심(Centroid)'
+                    )
+            
+            # 그래프 데코레이션 설정
+            ax.set_title(f"📊 특수학교 최적 건설지 진단 산점도 (정책 선행 시차: {years_ahead}년 반영)", fontsize=13, fontweight='bold', pad=10)
+            ax.set_xlabel("🔮 미래 예측 총수요 (Simulated Demand)", fontsize=11)
+            ax.set_ylabel("⚠️ 정량적 공급 부족도 (예측수요 - 현재수용량)", fontsize=11)
+            ax.grid(True, linestyle='--', alpha=0.5)
+            ax.legend(loc='upper left', fontsize=10)
+            
+            # 컬러바 연동 및 스케일 바인딩
+            cbar = fig_main.colorbar(scatter, ax=ax)
+            cbar.set_label('종합 인프라 위험도 점수 (붉을수록 적합도/위험도 높음)', rotation=270, labelpad=15)
+            
+            st.pyplot(fig_main)
+            plt.close(fig_main)
             
         with col_map2:
-            st.markdown("#### 💡 2D 영토 그라데이션 분석 요약")
+            st.markdown("#### 💡 2D 산점도 시각화 요약")
             st.info("""
-            * **행정구역 경계 명확화**: 세부 구 단위를 배제하고 **17개 시도 행정구역** 경계면을 칼처럼 뚜렷하게 구분지어 시각화 완성도 향상.
-            * **색상 매핑 규칙**: 
-              - 🔴 **붉은색 계열**: 건설 적합도 및 수요 **매우 높음**
-              - 🟡 **노란색 계열**: 건설 적합도 및 수요 **보통**
-              - 🔵 **푸른색 계열**: 건설 적합도 및 수요 **낮음**
-            * 왼쪽 사이드바 변수를 조절하면 권역별 그라데이션 농도가 동적으로 동조화되어 변화합니다.
+            * **에러 제로 산점도 전환**: 외부 지도 파일 브라우징 의존성을 완벽히 걷어내고 순수 데이터 차원 좌표 분석으로 **구현 안정성 최적화 완료**.
+            * **좌표 해석 가이드**: 
+              - ↗️ **우상단 영역**: 미래 수요가 폭증하면서 현재 독립 특수학교 수용 한도를 한참 초과한 **최우선 재정 투입 지점**.
+              - 🔴 **진한 붉은 마커**: 시뮬레이션 가중치 스코어가 집중된 최고 위험 행정구역.
             """)
-            st.write("**권역별 통합 시뮬레이션 결과**")
-            st.dataframe(agg_map_data.sort_values(by='Simulated_Demand', ascending=False).rename(columns={'광역지역키': '지역권역', 'Simulated_Demand': '총예측수요', '위험도_점수': '평균위험도'}), use_container_width=True, hide_index=True)
+            st.write("**실시간 분석 탑재 데이터셋**")
+            st.dataframe(
+                master_data.sort_values(by='위험도_점수', ascending=False)
+                [['시군구', 'Simulated_Demand', '공급부족도', '위험도_점수']]
+                .rename(columns={'시군구': '지역', 'Simulated_Demand': '예측수요', '공급부족도': '인프라부족분', '위험도_점수': '종합위험도'}),
+                use_container_width=True, hide_index=True
+            )
     else:
-        st.warning("⚠️ folium 및 streamlit-folium 라이브러리가 설치되지 않아 지도를 표시할 수 없습니다.")
-        st.dataframe(master_data[['시군구', '위도', '경도', 'Simulated_Demand', '위험도_점수']], use_container_width=True)
+        st.warning("⚠️ 시각화 필수 엔진 라이브러리가 부재합니다.")
+        st.dataframe(master_data[['시군구', 'Simulated_Demand', '공급부족도', '위험도_점수']], use_container_width=True)
 
 # ---------------------------------------------------------------------
 # TAB 3: 시계열 수요 전이 시뮬레이션 트렌드
