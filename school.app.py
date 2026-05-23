@@ -32,7 +32,6 @@ try:
     import folium
     from folium.plugins import HeatMap
     from streamlit_folium import st_folium
-    import brunch  # 컬러맵 연동용 (필요시 내부 대체용 사용)
     HAS_FOLIUM = True
 except ImportError:
     HAS_FOLIUM = False
@@ -456,7 +455,7 @@ with tab2:
                     fill=True,
                     fill_color='#2c3e50',
                     fill_opacity=0.9,
-                    tooltip=f"<b>{target_key} 권역 통통합 분석</b><br>총 예측 미래수요: {row['Simulated_Demand']:.1f}명<br>평균 인프라 위험도: {row['위험도_점수']:.1f}점"
+                    tooltip=f"<b>{target_key} 권역 통합 분석</b><br>총 예측 미래수요: {row['Simulated_Demand']:.1f}명<br>평균 인프라 위험도: {row['위험도_점수']:.1f}점"
                 ).add_to(korea_map)
                 
             # 웹 화면에 완성된 반응형 경계 분할 지도 출력
@@ -516,7 +515,7 @@ with tab3:
     st.write("### 📋 전체 지역별 상세 시뮬레이션 결과 데이터프레임")
     detail_table = master_data[['시군구', 'Adaptive_FDI', '초등_저학년_특수', '초등_고학년_특수', '중고등_특수_합계', '특수학교_학생수', 'Simulated_Demand', '공급부족도', '위험도_점수']].copy()
     detail_table = detail_table.sort_values('위험도_점수', ascending=False)
-    detail_table.columns = ['지역', '현재 FDI', '저학년 특수', '고학년 특수', '중고등 합계', '특수학교 수용량', f'{years_ahead}년 예사수요', '공급부족도', '위험도']
+    detail_table.columns = ['지역', '현재 FDI', '저학년 특수', '고학년 특수', '중고등 합계', '특수학교 수용량', f'{years_ahead}년 유사수요', '공급부족도', '위험도']
     st.dataframe(detail_table.reset_index(drop=True), use_container_width=True)
 
 # ---------------------------------------------------------------------
@@ -572,14 +571,13 @@ with tab4:
                         st.write(f"**유휴 유연 공간 점수**: {school['유휴공간_점수']:.1f}점")
                     with col_s3:
                         st.write(f"**6학년 특수 정원**: {school['6학년_특수']:.0f}명")
-                        saving_rate = 98.3 - (rank - 1) * 0.5
-                        st.write(f"**예산 가용 절감률**: ~{saving_rate:.1f}%")
+                        st.write(f"**예산 가용 절감률**: ~{40.0 - (rank - 1) * 0.5:.1f}%")
                         
                     st.markdown("---")
                     st.write("**💡 공간 공학 분석 연산서**")
                     st.write(f"본 교육시설은 현재 학급당 밀집도가 {school['학급당학생수']:.1f}명선으로 구성되어 유휴 공간 교실 전용 효율성이 대단히 높은 상태입니다. "
                              f"단독형 특수학교의 완전 신설 비용(평균 300억 원)에 갈음하여 기존 교사 동 유휴 공간을 모듈형 리모델링(5~10억 원) 방식으로 리셋할 것을 제안합니다. "
-                             f"이를 통해 **약 {saving_rate:.1f}% 규모의 국가지방교육재정 예산 절감 및 조기 준공 효율성**을 창출해낼 수 있습니다.")
+                             f"이를 통해 기존 예산 대비 대폭 가용한 예산 절감 및 조기 준공 효율성을 창출해낼 수 있습니다.")
         else:
             st.warning(f"ℹ️ {selected_region} 지역 내 가용 초등 교육시설 마스터 레코드가 발견되지 않았습니다.")
 
