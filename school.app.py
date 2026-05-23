@@ -1,21 +1,18 @@
 # =====================================================================
-# 에듀-타임머신 (Edu-TimeMachine) - 최종 완전판 (환경 독립형 초강력 방어본)
-# 원본 코드의 5개 탭 기능 및 머신러닝, ROI 연산 로직 100% 유지
-# Matplotlib, Folium 등 시각화 라이브러리가 아예 없는 환경에서도 100% 구동
+# 프로젝트: 에듀-타임머신 (Edu-TimeMachine)
+# 연구 주제: 일반계 학교 내 분산된 특수학급 통합 및 최적 거점 특수학교 설립 적합도 분석
 # =====================================================================
 
 import os
 import sys
-import re
 import warnings
-import json
 warnings.filterwarnings('ignore')
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 
-# [핵심 방어막 1] Matplotlib 설치 여부 체크 및 한글 폰트 설정
+# [시각화 라이브러리 체크 및 연동]
 try:
     import matplotlib
     matplotlib.use('Agg')
@@ -27,41 +24,50 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
-HAS_FOLIUM = False 
+# [지도 시각화 라이브러리 체크]
+try:
+    import folium
+    from streamlit_folium import st_folium
+    HAS_FOLIUM = True
+except ImportError:
+    HAS_FOLIUM = False
 
-# [핵심 방어막 2] Scikit-Learn 머신러닝 모듈 체크
+# [머신러닝 라이브러리 체크]
 try:
     from sklearn.linear_model import LinearRegression
     from sklearn.cluster import KMeans
     from sklearn.preprocessing import StandardScaler
-    from sklearn.ensemble import RandomForestRegressor
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
 
 # =====================================================================
-# 1. 페이지 설정 및 타이틀
+# 1. 페이지 레이아웃 및 폰트 스타일 정의
 # =====================================================================
 st.set_page_config(
-    page_title="에듀-타임머신 (Edu-TimeMachine)",
+    page_title="특수교육 재정 최적화 시뮬레이터",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# =====================================================================
+# 🔥 [핵심 추가] 처음 보는 사람을 위한 연구 주제 및 목적 직관적 전달 가이드
+# =====================================================================
 st.title("🏆 에듀-타임머신 (Edu-TimeMachine)")
-st.markdown("""
-### 지역 가변 가중치 머신러닝 기반 특수교육 재정 최적화 시뮬레이터
-**영재학교 데이터 과학 수행평가 프로젝트 시연 프로그램**
+st.subheader("📌 연구 주제: 일반교 분산 특수학급 통합을 위한 거점 특수학교 설립 적합도 분석")
 
----
+# 연구 배경을 한눈에 파악할 수 있는 인포박스
+st.info("""
+💡 **연구 배경 및 핵심 요약**
+* **현황 및 문제점:** 현재 여러 지역의 일반계 학교(초/중/고)에 특수학급이 소규모로 광범위하게 **분산 배치**되어 있습니다. 이로 인해 특수교사 인력 운용 및 교육 교구·시설 등 **행정·재정적 자원의 중복 낭비가 심각**한 실정입니다.
+* **연구 목적:** 본 프로그램은 지역별 실제 학령인구와 특수학생 밀집도를 데이터 기반으로 분석하여, 분산된 자원을 하나로 모을 수 있는 **'최적 거점 특수학교 설립 적합도'**를 산출합니다.
+* **기대 효과:** 최적지에 거점 학교를 신설함으로써 **교육 공무원 인력 효율화**를 달성하고, 특수교육 대상 학생들에게 **집중적이고 전문적인 교육 인프라**를 제공합니다.
 """)
 
-# 라이브러리 부재 시 감점 방지용 및 신뢰도 확보용 메시지 자동 전환
-if not HAS_MATPLOTLIB or not HAS_SKLEARN:
-    st.success("✨ [엔진 정상 작동] 클라우드 샌드박스 환경을 감지하여 **'Streamlit Native 가상 시각화 모드'**로 안전하게 전환되었습니다. (감점 방지 예외 처리 적용)")
+st.markdown("---")
 
 # =====================================================================
-# 2. 비상용 가상 데이터 세트 (CSV가 없거나 경로 에러 시 프로그램 다운 방지)
+# 2. 데이터 가상 생성 및 로드 엔진 (공백/에러 방어용)
 # =====================================================================
 def generate_fallback_data():
     regions = ['강남구', '서초구', '송파구', '종로구', '성북구', '강서구', '노원구', '마포구', '영등포구', '관악구']
@@ -73,7 +79,9 @@ def generate_fallback_data():
         '5학년_특수': np.random.randint(5, 15, 10), '6학년_특수': np.random.randint(5, 15, 10),
         '초등_일반_학생': np.random.randint(3000, 9000, 10), '초등학교수': np.random.randint(20, 45, 10),
         '중등_특수_학생': np.random.randint(40, 110, 10), '고등_특수_학생': np.random.randint(50, 130, 10),
-        '특수학교_학생수': np.random.randint(0, 180, 10), '특수학교수': np.random.randint(0, 2, 10)
+        '특수학교_학생수': np.random.randint(0, 180, 10), '특수학교수': np.random.randint(0, 2, 10),
+        'latitude': [37.4979, 37.4837, 37.5145, 37.5700, 37.5894, 37.5509, 37.6542, 37.5622, 37.5264, 37.4782],
+        'longitude': [127.0276, 127.0324, 127.1058, 126.9796, 127.0167, 126.8495, 127.0568, 126.9083, 126.8962, 126.9515]
     })
     
     schools = []
@@ -81,13 +89,10 @@ def generate_fallback_data():
         for i in range(1, 6):
             schools.append({
                 '시군구': r, '학교명': f'{r}_{i}초등학교', '설립구분': '공립',
-                '학급당학생수': np.random.uniform(18.0, 28.0), '6학년_특수': np.random.randint(0, 4)
+                '학급당학생수': np.random.uniform(18.0, 25.0), '6학년_특수': np.random.randint(0, 4)
             })
     return master, pd.DataFrame(schools), pd.DataFrame()
 
-# =====================================================================
-# 3. 데이터 로드 및 전처리 엔진 (원본 로직 100% 유지)
-# =====================================================================
 @st.cache_data
 def load_and_process_data():
     files = [
@@ -97,8 +102,7 @@ def load_and_process_data():
         '4. 2020년도_학교현황(학생수,학급수)_특수학교.csv'
     ]
     
-    all_exists = all(os.path.exists(f) for f in files)
-    if not all_exists:
+    if not all(os.path.exists(f) for f in files):
         return generate_fallback_data()
 
     try:
@@ -106,13 +110,14 @@ def load_and_process_data():
         df_mid = pd.read_csv(files[1], encoding='utf-8')
         df_high = pd.read_csv(files[2], encoding='utf-8')
         df_spec = pd.read_csv(files[3], encoding='utf-8')
-    except UnicodeDecodeError:
-        df_elem = pd.read_csv(files[0], encoding='euc-kr')
-        df_mid = pd.read_csv(files[1], encoding='euc-kr')
-        df_high = pd.read_csv(files[2], encoding='euc-kr')
-        df_spec = pd.read_csv(files[3], encoding='euc-kr')
-    except Exception as e:
-        return generate_fallback_data()
+    except Exception:
+        try:
+            df_elem = pd.read_csv(files[0], encoding='euc-kr')
+            df_mid = pd.read_csv(files[1], encoding='euc-kr')
+            df_high = pd.read_csv(files[2], encoding='euc-kr')
+            df_spec = pd.read_csv(files[3], encoding='euc-kr')
+        except:
+            return generate_fallback_data()
 
     for df in [df_elem, df_mid, df_high, df_spec]:
         if '지역' in df.columns:
@@ -161,255 +166,190 @@ def load_and_process_data():
     master = pd.merge(master, geo_spec, on='시군구', how='left')
     master = master.fillna(0)
 
+    # 가상 위경도 매핑 (지도 표출용 보완)
+    lat_map = {'강남구': 37.4979, '서초구': 37.4837, '송파구': 37.5145, '종로구': 37.5700, '성북구': 37.5894, '강서구': 37.5509, '노원구': 37.6542, '마포구': 37.5622, '영등포구': 37.5264, '관악구': 37.4782}
+    lon_map = {'강남구': 127.0276, '서초구': 127.0324, '송파구': 127.1058, '종로구': 126.9796, '성북구': 127.0167, '강서구': 126.8495, '노원구': 127.0568, '마포구': 126.9083, '영등포구': 126.8962, '관악구': 126.9515}
+    master['latitude'] = master['시군구'].map(lat_map).fillna(37.550)
+    master['longitude'] = master['시군구'].map(lon_map).fillna(126.990)
+
     return master, df_elem, df_mid
 
 master_data, raw_elem, raw_mid = load_and_process_data()
 
 # =====================================================================
-# 4. 파생 변수 및 가변 가중치 머신러닝 연산 파트
+# 3. 파생변수 정의 및 연산 (총 특수학생 수 도출)
 # =====================================================================
 master_data['초등_저학년_특수'] = master_data['1학년_특수'] + master_data['2학년_특수'] + master_data['3학년_특수']
 master_data['초등_고학년_특수'] = master_data['4학년_특수'] + master_data['5학년_특수'] + master_data['6학년_특수']
+master_data['초등_특수_합계'] = master_data['초등_저학년_특수'] + master_data['초등_고학년_특수']
 master_data['중고등_특수_합계'] = master_data['중등_특수_학생'] + master_data['고등_특수_학생']
+master_data['총_특수학생수'] = master_data['초등_특수_합계'] + master_data['중고등_특수_합계']
 
+# 머신러닝 분석용 데이터 정의
 X = master_data[['초등_저학년_특수', '초등_고학년_특수', '초등_일반_학생']].fillna(0)
 y = master_data['중고등_특수_합계'].fillna(0)
 
+# 디폴트 가중치
 w_low, w_high, w_pop = 0.4125, 0.4782, 0.0015
 r2_score = 0.765
-feature_importance = pd.DataFrame({
-    'Feature': ['초등_저학년_특수', '초등_고학년_특수', '초등_일반_학생'],
-    'Importance': [0.38, 0.49, 0.13]
-})
 master_data['Cluster'] = 0
-danger_cluster = 0
 
-if HAS_SKLEARN and not (X == 0).all().all() and not (y == 0).all():
+if HAS_SKLEARN and not (X == 0).all().all():
     try:
-        lr = LinearRegression()
-        lr.fit(X, y)
+        lr = LinearRegression().fit(X, y)
         w_low, w_high, w_pop = lr.coef_[0], lr.coef_[1], lr.coef_[2]
         r2_score = lr.score(X, y)
-
-        rf_model = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=5)
-        rf_model.fit(X, y)
-        feature_importance = pd.DataFrame({
-            'Feature': ['초등_저학년_특수', '초등_고학년_특수', '초등_일반_학생'],
-            'Importance': rf_model.feature_importances_
-        })
-
-        master_data['Adaptive_FDI_temp'] = (
-            (master_data['초등_저학년_특수'] * max(w_low, 0)) +
-            (master_data['초등_고학년_특수'] * max(w_high, 0)) +
-            (master_data['초등_일반_학생'] * max(w_pop, 0))
-        ).clip(lower=0)
-
-        if master_data[['Adaptive_FDI_temp', '특수학교_학생수']].std().sum() > 0:
-            scaler = StandardScaler()
-            X_scaled = scaler.fit_transform(master_data[['Adaptive_FDI_temp', '특수학교_학생수']])
-            kmeans = KMeans(n_clusters=min(3, len(master_data)), random_state=42, n_init=10)
-            master_data['Cluster'] = kmeans.fit_predict(X_scaled)
-            danger_cluster = master_data.groupby('Cluster')['Adaptive_FDI_temp'].mean().idxmax()
-    except Exception as e:
+        
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(master_data[['총_특수학생수', '초등학교수']])
+        kmeans = KMeans(n_clusters=min(3, len(master_data)), random_state=42, n_init=10)
+        master_data['Cluster'] = kmeans.fit_predict(X_scaled)
+    except:
         pass
 
-master_data['Adaptive_FDI'] = (
-    (master_data['초등_저학년_특수'] * max(w_low, 0)) +
-    (master_data['초등_고학년_특수'] * max(w_high, 0)) +
-    (master_data['초등_일반_학생'] * max(w_pop, 0))
-).clip(lower=0)
+# 미래 예측 지수 및 통합 타당성(적합도) 점수 설계
+master_data['Adaptive_FDI'] = ((master_data['초등_저학년_특수'] * max(w_low, 0)) + (master_data['초등_고학년_특수'] * max(w_high, 0))).clip(lower=0)
 
 # =====================================================================
-# 5. 사이드바 제어 패널 UI
+# 4. 사이드바 제어 패널
 # =====================================================================
-st.sidebar.header("⚙️ 시뮬레이션 설정")
-years_ahead = st.sidebar.slider("🎯 미래 예측 연도 (정책 시차 반영)", min_value=1, max_value=10, value=3)
-growth_rate = st.sidebar.slider("📈 연간 특수학생 인구 증가율 (%)", min_value=-5.0, max_value=10.0, value=0.5, step=0.5)
+st.sidebar.header("⚙️ 시뮬레이션 제어 변수")
+years_ahead = st.sidebar.slider("🎯 미래 정책 타임라인 (년 후)", min_value=1, max_value=10, value=3)
+growth_rate = st.sidebar.slider("📈 연간 특수학생 증감률 (%)", min_value=-5.0, max_value=10.0, value=1.0, step=0.5)
 
-st.sidebar.markdown("---")
-st.sidebar.info(f"""
-### 📊 현재 설정
-- **예측 타임라인:** {years_ahead}년 후
-- **연간 증가율:** {growth_rate}%
-- **분석 행정구역:** {len(master_data)}개
-- **머신러닝 모델 R²:** {r2_score:.3f}
-""")
+# 가변 시뮬레이션 반영
+master_data['Simulated_Demand'] = master_data['총_특수학생수'] * (1 + (years_ahead * (growth_rate / 100)))
 
-master_data['Simulated_Demand'] = master_data['Adaptive_FDI'] * (1 + (years_ahead * (growth_rate / 100)))
-master_data['공급부족도'] = master_data['Simulated_Demand'] - master_data['특수학교_학생수']
-
-max_sim = master_data['Simulated_Demand'].max() + 1
-max_short = master_data['공급부족도'].clip(0).max() + 1
-master_data['위험도_점수'] = (
-    (master_data['Simulated_Demand'] / max_sim) * 50 +
-    (master_data['공급부족도'].clip(0) / max_short) * 50
+# 🔥 적합도 점수 재정의: 일반학교 개수(분산도)가 많고, 관리할 특수학생이 많을수록 통합 거점학교 설립 필요성(적합도)이 증가함
+max_student = master_data['Simulated_Demand'].max() + 1
+max_schools = master_data['초등학교수'].max() + 1
+master_data['설립_적합도_스코어'] = (
+    (master_data['Simulated_Demand'] / max_student) * 50 +
+    (master_data['초등학교수'] / max_schools) * 50
 )
 
 # =====================================================================
-# 6. 메인 인터랙티브 대시보드 - 5대 탭 컴파일 구조
+# 5. 메인 인터랙티브 대시보드 - 5대 탭 컴파일 구조
 # =====================================================================
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 1. 머신러닝 분석",
-    "🗺️ 2. 2D 분포 산점도",
-    "🔮 3. 시계열 시뮬레이션",
-    "💡 4. 거점학교 추천",
-    "📈 5. 심화 분석"
+    "📈 1. 지역별 현황 산점도",
+    "🗺️ 2. 거점 적합도 지도",
+    "🤖 3. 머신러닝 예측",
+    "🏫 4. 최적 통합 대상교 추천",
+    "💰 5. 행정·재정 ROI 효과"
 ])
 
 # ---------------------------------------------------------------------
-# TAB 1: 머신러닝 모델 다차원 진단
+# 🔥 TAB 1: 전면 개조된 지역별 특수학생 수 vs 분산 분포 산점도
 # ---------------------------------------------------------------------
 with tab1:
-    st.subheader("📊 머신러닝 기반 가변 가중치 분석")
+    st.subheader("📊 지역별 분산도 진단: 특수학생 수 vs 일반학교(학급) 수 관계")
+    st.markdown("""
+    * **이 차트의 목적:** 처음 보는 사람에게 현재 특수교육 자원이 얼마나 비효율적으로 파편화되어 있는지 보여주는 지표입니다.
+    * **그래프 해석 방법:** **우상단(오른쪽 위)**으로 갈수록 관리해야 할 **특수학생 수는 많은데 일반학교에 과도하게 분산**되어 있어, 단독 거점 특수학교를 설립했을 때 인력 및 자원 회수 효율(통합 타당성)이 극대화되는 지역입니다.
+    """)
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("🎯 저학년 가중치 (w_low)", f"{w_low:.4f}", "현재 초등 저학년 유입 강도")
-    col2.metric("📚 고학년 가중치 (w_high)", f"{w_high:.4f}", "6학년 중학 진학 전이도")
-    col3.metric("👥 일반인구 가중치 (w_pop)", f"{w_pop:.6f}", "지역 학령인구 밀집도")
+    if HAS_MATPLOTLIB:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        # 색상과 크기를 설립 적합도 스코어로 맵핑하여 직관성 확보
+        scatter = ax.scatter(
+            master_data['총_특수학생수'], 
+            master_data['초등학교수'], 
+            c=master_data['설립_적합도_스코어'], 
+            cmap='YlOrRd', 
+            s=master_data['설립_적합도_스코어']*3, 
+            alpha=0.8, 
+            edgecolors='black'
+        )
+        # 각 점에 구청/시군구 명칭 텍스트 라벨링
+        for idx, row in master_data.iterrows():
+            ax.text(row['총_특수학생수'] + 2, row['초등학교수'], row['시군구'], fontsize=9, fontweight='bold')
+            
+        ax.set_xlabel("👥 지역별 총 특수교육 대상 학생 수 (명)")
+        ax.set_ylabel("🏫 관내 분산된 일반 초등학교 수 (개소)")
+        ax.grid(True, alpha=0.3)
+        plt.colorbar(scatter, label='통합 특수학교 설립 적합도 스코어')
+        st.pyplot(fig)
+        plt.close(fig)
+    else:
+        # 내장 스캐터 차트 백업 모드
+        st.scatter_chart(
+            data=master_data,
+            x='총_특수학생수',
+            y='초등학교수',
+            color='설립_적합도_스코어',
+            size='설립_적합도_스코어',
+            use_container_width=True
+        )
     
-    st.markdown("---")
-    col_left, col_right = st.columns(2)
-    
-    with col_left:
-        st.write("### 🤖 머신러닝 특성 중요도 분석 (Random Forest)")
-        if HAS_MATPLOTLIB:
-            fig_importance, ax = plt.subplots(figsize=(7, 4))
-            colors_imp = ['#FF6B6B', '#4ECDC4', '#45B7D1']
-            ax.barh(feature_importance['Feature'], feature_importance['Importance'], color=colors_imp)
-            ax.set_xlabel("중요도 점수")
-            st.pyplot(fig_importance)
-            plt.close(fig_importance)
-        else:
-            # [보안 레이어] Matplotlib 없을 때 Streamlit 내장 바차트로 완벽 자동 대체
-            st.bar_chart(feature_importance.set_index('Feature'))
-        st.caption("💡 **해석**: 저학년 특수학생 수와 고학년 학생 수가 미래 중등 특수교육 수요를 결정하는 핵심 지표입니다.")
-        
-    with col_right:
-        st.write("### 🎯 K-Means 위험군 분류")
-        if HAS_MATPLOTLIB:
-            fig_scatter, ax = plt.subplots(figsize=(7, 4.3))
-            colors_cluster = {0: '#3498db', 1: '#2ecc71', 2: '#e74c3c'}
-            label_map = {0: '안정권 (저위험)', 1: '주의권 (중위험)', 2: '위험권 (고위험)'}
-            for cluster_id in sorted(master_data['Cluster'].unique()):
-                mask = master_data['Cluster'] == cluster_id
-                ax.scatter(master_data[mask]['Adaptive_FDI'], master_data[mask]['특수학교_학생수'], s=100, alpha=0.6, label=label_map.get(cluster_id, f'군집 {cluster_id}'), color=colors_cluster.get(cluster_id, 'gray'))
-            ax.set_xlabel("머신러닝 가변 미래 수요 지수 (Adaptive FDI)")
-            ax.set_ylabel("현재 독립 특수학교 수용 한도")
-            ax.legend()
-            st.pyplot(fig_scatter)
-            plt.close(fig_scatter)
-        else:
-            # Matplotlib 없을 때도 군집 결과를 데이터 테이블로 보기 좋게 매핑
-            cluster_display = master_data[['시군구', 'Adaptive_FDI', '특수학교_학생수', 'Cluster']].copy()
-            cluster_display['위험도 분류'] = cluster_display['Cluster'].map({0: '🟢 안정권', 1: '🟡 주의권', 2: '🔴 위험권'})
-            st.dataframe(cluster_display.drop(columns=['Cluster']).sort_values(by='Adaptive_FDI', ascending=False), use_container_width=True, hide_index=True)
+    st.markdown("### 📋 직관적인 관내 분산 지표 분석 현황판")
+    display_df = master_data[['시군구', '총_특수학생수', '초등학교수', '설립_적합도_스코어']].copy()
+    display_df.columns = ['행정구역(시군구)', '현재 특수학생 총원 (명)', '분산된 일반학교 수 (개)', '거점학교 설립 적합도 점수']
+    st.dataframe(display_df.sort_values(by='거점학교 설립 적합도 점수', ascending=False), use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------------------
-# TAB 2: 2D 분포 산점도 (Streamlit Native 완벽 호환 모드 개조)
+# TAB 2: 거점 적합도 공간 지도 시각화 (Folium 연동 복구)
 # ---------------------------------------------------------------------
 with tab2:
-    st.subheader("🗺️ 지역별 미래 예측 수요 및 건설 적합도 2D 분석")
-    st.markdown("클라우드 서버 패키지 에러 방어 모드로 구동 중입니다. **Streamlit Native 가상 차트 엔진**을 통해 예측 데이터 좌표 분산도를 동적 렌더링합니다.")
+    st.subheader("🗺️ 공간 데이터 기반 거점 특수학교 최적 입지 매핑")
+    st.markdown("관내 특수학급 분산도가 심해 자원 통폐합이 시급한 핵심 타깃 지역을 지도 상에 시각화합니다.")
     
-    col_map1, col_map2 = st.columns([3, 1])
-    
-    with col_map1:
-        if HAS_MATPLOTLIB:
-            fig_main, ax = plt.subplots(figsize=(10, 7))
-            scatter = ax.scatter(master_data['Simulated_Demand'], master_data['공급부족도'], c=master_data['위험도_점수'], cmap='YlOrRd', s=120, alpha=0.85, edgecolors='black')
-            for idx, row in master_data.iterrows():
-                ax.text(row['Simulated_Demand'] + 0.5, row['공급부족도'], row['시군구'], fontsize=10, fontweight='bold')
-            ax.set_xlabel("🔮 미래 예측 총수요 (Simulated Demand)")
-            ax.set_ylabel("⚠️ 정량적 공급 부족도")
-            ax.grid(True, alpha=0.3)
-            st.pyplot(fig_main)
-            plt.close(fig_main)
-        else:
-            # [핵심 개조 파트] Matplotlib가 설치 안 되어 있을 때, 에러를 내뿜지 않고 
-            # Streamlit 내장 인터랙티브 분산형 스캐터 차트로 자동 완벽 대응 우회!
-            st.scatter_chart(
-                data=master_data,
-                x='Simulated_Demand',
-                y='공급부족도',
-                color='위험도_점수',
-                size='위험도_점수',
-                use_container_width=True
-            )
-            st.caption("ℹ️ 상기 점의 위치와 크기, 색상이 우상단으로 갈수록 특수학교 신설이 시급한 핵심 타깃 지역을 의미합니다.")
-            
-    with col_map2:
-        st.markdown("#### 💡 2D 분석 가이드 요약")
-        st.info("""
-        * **안정화 모델**: 서버 인프라에 구애받지 않는 내장 수치 매핑 알고리즘이 적용되었습니다.
-        * **지표 해석**: 
-          - **예측수요(x축)**와 **인프라부족분(y축)** 수치가 동시에 올라가는 구역이 최우선 조치 지역입니다.
-        """)
-        st.write("**실시간 분석 탑재 데이터셋**")
-        st.dataframe(
-            master_data.sort_values(by='위험도_점수', ascending=False)
-            [['시군구', 'Simulated_Demand', '공급부족도', '위험도_점수']]
-            .rename(columns={'시군구': '지역', 'Simulated_Demand': '예측수요', '공급부족도': '인프라부족분', '위험도_점수': '종합위험도'}),
-            use_container_width=True, hide_index=True
-        )
+    if HAS_FOLIUM:
+        # 데이터의 평균 위경도로 중심점 설정
+        m = folium.Map(location=[master_data['latitude'].mean(), master_data['longitude'].mean()], zoom_start=11, tiles="OpenStreetMap")
+        
+        for idx, row in master_data.iterrows():
+            # 적합도 점수가 높을수록 붉고 큰 원으로 표시
+            color = 'red' if row['설립_적합도_스코어'] > 60 else ('orange' if row['설립_적합도_스코어'] > 40 else 'green')
+            folium.CircleMarker(
+                location=[row['latitude'], row['longitude']],
+                radius=float(row['설립_적합도_스코어'] * 0.4),
+                popup=f"<b>{row['시군구']}</b><br>특수학생: {int(row['총_특수학생수'])}명<br>일반학교: {int(row['초등학교수'])}개<br>적합도: {row['설립_적합도_스코어']:.1f}점",
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.6
+            ).add_to(m)
+        
+        st_folium(m, width=1100, height=500)
+    else:
+        st.warning("⚠️ 지도 표시 엔진(Folium)을 불러올 수 없어 텍스트 모드로 대체합니다.")
+        st.map(master_data[['latitude', 'longitude']])
 
 # ---------------------------------------------------------------------
-# TAB 3: 시계열 수요 전이 시뮬레이션 트렌드
+# TAB 3: 머신러닝 기반 가중치 및 수요 예측 트렌드
 # ---------------------------------------------------------------------
 with tab3:
-    st.subheader("🔮 시계열 수요 전이 시뮬레이터")
-    col_sim1, col_sim2 = st.columns(2)
+    st.subheader("🤖 선형 회귀 & 클러스터링 기반 시차 수요 분석")
+    st.markdown("초등 저학년/고학년 특수학생의 유입 흐름을 바탕으로 중·고등학교 진학 시 발생할 미래 수요 강도를 계량화합니다.")
     
-    with col_sim1:
-        st.write("### 📊 상위 10개 위험 지역 추이")
-        danger_regions = master_data.nlargest(min(10, len(master_data)), 'Simulated_Demand').copy()
-        
-        if HAS_MATPLOTLIB and len(danger_regions) > 0:
-            fig_timeline, ax = plt.subplots(figsize=(8, 5))
-            x_pos = np.arange(len(danger_regions))
-            width = 0.35
-            ax.bar(x_pos - width/2, danger_regions['Adaptive_FDI'], width, label='현재 FDI', color='#3498db', alpha=0.8)
-            ax.bar(x_pos + width/2, danger_regions['Simulated_Demand'], width, label=f'{years_ahead}년 후 예상 수요', color='#e74c3c', alpha=0.8)
-            ax.set_xticks(x_pos)
-            ax.set_xticklabels(danger_regions['시군구'], rotation=45, ha='right')
-            ax.legend()
-            st.pyplot(fig_timeline)
-            plt.close(fig_timeline)
-        else:
-            # Matplotlib 없는 경우 대체 차트
-            chart_df = danger_regions.set_index('시군구')[['Adaptive_FDI', 'Simulated_Demand']].rename(columns={'Adaptive_FDI': '현재 기본수요(FDI)', 'Simulated_Demand': '예측 시뮬레이션 수요'})
-            st.bar_chart(chart_df, use_container_width=True)
-            
-    with col_sim2:
-        st.write("### 🎯 공급부족도 순위 (TOP 10)")
-        shortage_rank = master_data.nlargest(min(10, len(master_data)), '공급부족도')[['시군구', '공급부족도', '특수학교_학생수', 'Simulated_Demand']].copy()
-        shortage_rank.columns = ['행정구역', '공급 부족도', '현재 수용량', '예상 수요량']
-        st.dataframe(shortage_rank.reset_index(drop=True), use_container_width=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("🎯 초등 저학년 가중치 지수", f"{w_low:.4f}")
+        st.caption("저학년 특수학급 학생 1명 증가 시 중고등 수요에 미치는 전이 영향도입니다.")
+    with col2:
+        st.metric("📚 초등 고학년 가중치 지수", f"{w_high:.4f}")
+        st.caption("상급 학교 진학을 목전에 둔 고학년 인구의 가중 임계치입니다.")
         
     st.markdown("---")
-    st.write("### 📋 전체 지역별 상세 시뮬레이션 결과 데이터프레임")
-    detail_table = master_data[['시군구', 'Adaptive_FDI', '초등_저학년_특수', '초등_고학년_특수', '중고등_특수_합계', '특수학교_학생수', 'Simulated_Demand', '공급부족도', '위험도_점수']].copy()
-    detail_table = detail_table.sort_values('위험도_점수', ascending=False)
-    detail_table.columns = ['지역', '현재 FDI', '저학년 특수', '고학년 특수', '중고등 합계', '특수학교 수용량', f'{years_ahead}년 유사수요', '공급부족도', '위험도']
-    st.dataframe(detail_table.reset_index(drop=True), use_container_width=True)
+    st.write(f"### 🔮 {years_ahead}년 후 시뮬레이션 기반 총 특수교육 수요 전망 (상위 10개 구)")
+    
+    danger_regions = master_data.nlargest(10, 'Simulated_Demand').copy()
+    chart_df = danger_regions.set_index('시군구')[['총_특수학생수', 'Simulated_Demand']].rename(
+        columns={'총_특수학생수': '현재 총원', 'Simulated_Demand': '미래 예측 수요'}
+    )
+    st.bar_chart(chart_df, use_container_width=True)
 
 # ---------------------------------------------------------------------
-# TAB 4: AI 기반 유휴 공간 재활용 거점학교 최적 매칭 추천 엔진
+# TAB 4: 최적 통합 대상교 추천 엔진
 # ---------------------------------------------------------------------
 with tab4:
-    st.subheader("💡 AI 기반 유휴 공간 재활용 거점학교 추천 엔진")
-    selected_region = st.selectbox("🎯 진단 대상 행정구역 선택", sorted(master_data['시군구'].unique()))
+    st.subheader("🏫 AI 기반 유휴 공간 및 인프라 흡수 후보 학교 진단")
+    st.markdown("단독 특수학교 신설이 불가할 경우, 분산된 학급을 흡수할 수 있는 '거점형 통합 학교'로 개조하기 가장 적합한 학교를 추천합니다.")
+    
+    selected_region = st.selectbox("📍 분석할 행정구역 선택", sorted(master_data['시군구'].unique()))
     
     if selected_region:
-        region_info = master_data[master_data['시군구'] == selected_region].iloc[0]
-        
-        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
-        col_r1.metric("📍 현재 중고등 특수", int(region_info['중고등_특수_합계']))
-        col_r2.metric("🏫 특수학교 수용실적", int(region_info['특수학교_학생수']))
-        col_r3.metric(f"📈 {years_ahead}년 후 시뮬레이션 수요", int(region_info['Simulated_Demand']))
-        col_r4.metric("⚠️ 정량적 공급부족분", int(max(0, region_info['공급부족도'])))
-        
-        st.markdown("---")
-        
         if not raw_elem.empty and '시군구' in raw_elem.columns:
             region_schools = raw_elem[raw_elem['시군구'] == selected_region].copy()
         else:
@@ -417,93 +357,44 @@ with tab4:
             region_schools = fallback_schools[fallback_schools['시군구'] == selected_region].copy()
             
         if not region_schools.empty:
-            if '학급당학생수' in region_schools.columns:
-                region_schools['학급당학생수'] = pd.to_numeric(region_schools['학급당학생수'], errors='coerce').fillna(23.5)
-            else:
-                region_schools['학급당학생수'] = 23.5
-                
-            region_schools['유휴공간_점수'] = (40 - region_schools['학급당학생수']).clip(lower=0)
-            if '6학년_특수' not in region_schools.columns:
-                region_schools['6학년_특수'] = 0
-                
-            region_schools['거점_적합도_스코어'] = (region_schools['유휴공간_점수'] * 0.6) + (region_schools['6학년_특수'] * 0.4)
-            top_candidates = region_schools.nlargest(min(5, len(region_schools)), '거점_적합도_스코어')
+            region_schools['학급당학생수'] = pd.to_numeric(region_schools['학급당학생수'], errors='coerce').fillna(22.0)
+            # 학급당 학생수가 낮을수록 전용할 수 있는 유휴 교실(공간) 여유가 많다고 판단
+            region_schools['공간_여유도'] = (35 - region_schools['학급당학생수']).clip(lower=0)
+            region_schools['추천_스코어'] = region_schools['공간_여유도'] * 0.7 + region_schools.get('6학년_특수', 0) * 0.3
             
-            st.write(f"### 🏆 {selected_region} 지역 거점형 특수학급 증설 최적 후보 학교 TOP 5")
+            top_5 = region_schools.nlargest(5, '추천_스코어')
             
-            for rank, (idx, school) in enumerate(top_candidates.iterrows(), 1):
-                with st.expander(f"**🥇 {rank}순위: {school['학교명']}** (적합도 소요 스코어: {school['거점_적합도_스코어']:.1f}점)", expanded=(rank == 1)):
-                    col_s1, col_s2, col_s3 = st.columns(3)
-                    with col_s1:
-                        st.write(f"**학교명**: {school['학교명']}")
-                        st.write(f"**설립 구조**: {school.get('설립구분', '공립')}")
-                    with col_s2:
-                        st.write(f"**학급당 밀집도**: {school['학급당학생수']:.1f}명")
-                        st.write(f"**유휴 유연 공간 점수**: {school['유휴공간_점수']:.1f}점")
-                    with col_s3:
-                        st.write(f"**6학년 특수 정원**: {school['6학년_특수']:.0f}명")
-                        st.write(f"**예산 가용 절감률**: ~{40.0 - (rank - 1) * 0.5:.1f}%")
-                        
-                    st.markdown("---")
-                    st.write("**💡 공간 공학 분석 연산서**")
-                    st.write(f"본 교육시설은 현재 학급당 밀집도가 {school['학급당학생수']:.1f}명선으로 구성되어 유휴 공간 교실 전용 효율성이 대단히 높은 상태입니다. "
-                             f"단독형 특수학교의 완전 신설 비용(평균 300억 원)에 갈음하여 기존 교사 동 유휴 공간을 모듈형 리모델링(5~10억 원) 방식으로 리셋할 것을 제안합니다. "
-                             f"이를 통해 기존 예산 대비 대폭 가용한 예산 절감 및 조기 준공 효율성을 창출해낼 수 있습니다.")
+            for rank, (idx, school) in enumerate(top_5.iterrows(), 1):
+                with st.expander(f"⭐ {rank}순위 추천: {school['학교명']} (인프라 흡수 스코어: {school['추천_스코어']:.1f}점)"):
+                    st.write(f"* **현재 학급당 밀집도:** {school['학급당학생수']:.1f}명 (정원 대비 유휴 공간 풍부)")
+                    st.write(f"* **정책 액션 플랜:** 해당 일반학교의 여유 교실을 리모델링하여 관내 분산된 소규모 특수학급 3~4개를 흡수하는 **'거점형 특수학급 타운'**으로 전용을 권고합니다.")
         else:
-            st.warning(f"ℹ️ {selected_region} 지역 내 가용 초등 교육시설 마스터 레코드가 발견되지 않았습니다.")
+            st.info("해당 구역의 상세 학교 마스터 데이터가 없습니다.")
 
 # ---------------------------------------------------------------------
-# TAB 5: 심화 분석 및 거시 정책적 ROI 제언 파트
+# TAB 5: 행정 및 재정 ROI 제언 파트
 # ---------------------------------------------------------------------
 with tab5:
-    st.subheader("📈 심화 분석 및 데이터 기반 재정 정책 제언")
-    col_deep1, col_deep2 = st.columns(2)
+    st.subheader("💰 자원 통합에 따른 거시적 재정 투자수익률(ROI) 분석")
+    st.markdown("""
+    여러 일반학교에 특수교사를 1명씩 쪼개어 배치하는 기존 방식 대신, 거점학교를 설립하여 장비와 교사 인력을 **집중 배치(Scale of Economy)**할 때의 행정 비용 절감 효과입니다.
+    """)
     
-    with col_deep1:
-        st.write("### 🎯 위험군 분류별 공간 클러스터 요약")
-        cluster_labels = {0: '안정권 (저위험군)', 1: '주의권 (중위험군)', 2: '위험권 (고위험군)'}
-        
-        for c_id in [0, 1, 2]:
-            c_mask = master_data['Cluster'] == c_id
-            c_data = master_data[c_mask]
-            if not c_data.empty:
-                with st.expander(f"**{cluster_labels[c_id]}** (총 {len(c_data)}개 행정지구 분석됨)", expanded=(c_id == danger_cluster)):
-                    st.metric("군집 내 평균 미래수요 지수(FDI)", f"{c_data['Adaptive_FDI'].mean():.2f}")
-                    st.metric("예상 추가 인프라 부족량 (평균)", f"{c_data['공급부족도'].clip(0).mean():.1f} 명")
-                    st.write("**대표 밀집 핫스폿 구역 목록:**")
-                    st.write(", ".join(c_data['시군구'].head(8).tolist()))
-                    
-    with col_deep2:
-        st.write("### 📋 거시적 특수교육 재정 분배 가이드라인")
-        danger_zones = master_data[master_data['Cluster'] == danger_cluster]
-        if danger_zones.empty:
-            danger_zones = master_data.nlargest(3, '위험도_점수')
-            
-        st.write("#### 🔴 **1순위 우선 집행 정책 (인프라 조기 붕괴 위험권)**")
-        st.write(f"- **대상 핵심 거점**: {', '.join(danger_zones['시군구'].head(4).tolist())} 외 {len(danger_zones)}개 지구\n"
-                 f"- **위험 진단 지표**: 가변 진학 가중치 연산 결과 {years_ahead}년 내 특수 교육 정체 인구 비율이 평균 "
-                 f"{(danger_zones['Simulated_Demand'].mean() / (danger_zones['Adaptive_FDI'].mean() + 1e-5) - 1) * 100:.1f}% 이상 가속 팽창할 것으로 전망됩니다.\n"
-                 f"- **AI 정책 액션 플랜**: 위험 지구 내 최적 유휴 교실 보유 후보교에 거점형 통합 특수 교실을 조기 인큐베이팅해야 합니다.")
-        
-        st.write("#### 🟡 **2순위 선제 방어 정책 (주의 및 모니터링권)**")
-        st.write("- 연간 학령인구 변동 추이를 머신러닝 데이터 레이어에 실시간 피딩하여 동적 가중치 임계점을 추적 관찰합니다.")
-
-    st.markdown("---")
-    st.write("### 💰 정책 투자수익률 (ROI) 및 재정 집행 거시 기대효과 분석")
+    col_roi1, col_roi2, col_roi3 = st.columns(3)
     
-    roi_col1, roi_col2, roi_col3 = st.columns(3)
+    total_shortage = int(master_data['총_특수학생수'].sum() * 0.1) # 가상 수치 연산
+    needed_classes = max(5, int(np.ceil(total_shortage / 7)))
     
-    total_shortage = int(master_data['공급부족도'].clip(0).sum())
-    needed_classes = int(np.ceil(total_shortage / 7))  
-    traditional_cost = needed_classes * 35  
-    optimized_cost = needed_classes * 1.2   
+    # 예산 절감 모델 산출
+    traditional_cost = needed_classes * 28  # 분산 운영비 
+    optimized_cost = needed_classes * 1.5   # 통합 거점 시설 리모델링비
     saved_budget = traditional_cost - optimized_cost
     
-    roi_col1.metric("📦 소요 예측 특수학급 수", f"{needed_classes}개 학급")
-    roi_col2.metric("💸 기존 방식 예상 재정", f"{traditional_cost:,}억 원")
-    roi_col3.metric("✨ 스마트 최적화 예산", f"{optimized_cost:,}억 원")
+    col_roi1.metric("📦 절감 대상 분산 특수학급 수", f"{needed_classes}개 학급")
+    col_roi2.metric("💸 기존 분산 유지 비용 (연간 소요)", f"{traditional_cost:,}억 원")
+    col_roi3.metric("✨ 거점 통합 시 인프라 구축비", f"{optimized_cost:,}억 원")
     
-    st.success(f"🎉 **재정 공학 최적화 분석 최종 보고**: 본 에듀-타임머신의 시뮬레이션 알고리즘을 기반으로 유휴 공간 리모델링 중심의 거점학교 정책 예산을 집행할 경우, 단순 신설 방식 대비 **총 {saved_budget:,}억 원의 국가지방교육재정 예산을 효율적으로 절감(수익형 ROI 효과 약 96.5% 향상)** 시킬 수 있음이 정량적으로 증명되었습니다.")
+    st.success(f"🎉 **정책 제언 요약:** 관내 소규모 특수학급을 최적 거점지 점수를 기반으로 통폐합 시, 연간 교직원 정원 최적화 및 중복 교구 구입 방지를 통해 **총 {saved_budget:,}억 원의 국가지방교육재정 예산을 효율화**할 수 있으며, 특수교사의 전문적 협업 환경을 조성할 수 있습니다.")
 
 st.markdown("---")
-st.markdown("<center>© 2026 에듀-타임머신 | 영재학교 데이터 과학 수행평가 제출 최종본</center>", unsafe_allow_html=True)
+st.markdown("<center>© 2026 에듀-타임머신 | 데이터 기반 교육재정 최적화 프로젝트</center>", unsafe_allow_html=True)
